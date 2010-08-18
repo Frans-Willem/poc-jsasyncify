@@ -223,5 +223,39 @@ This way, all variables are scoped along with the callbacks. By giving each leve
 The only drawback is that we need to extract all var statements and function statements, keep track of which variables each function has and in which scope they are, etc.
 While difficult, this should be possible. Javascript minifiers are already doing this.
 ## Calling built-in functions
+Seeing as all function calls are converted to asynchronous function calls, Math.min and Math.max will fail, horribly.
+One could put helper functions like:
+
+	function $sync(method,args) {
+		var $callback=arguments[arguments.length-1];
+		var args=Array.prototype.slice.call(arguments,1,arguments.length-2);
+		var ret;
+		try {
+			ret=method.apply(undefined,args);
+		}
+		catch($err) {
+			return $callback($err);
+		}
+		return $callback(undefined,ret);
+	}
+	function $osync(obj,method,args) {
+		var $callback=arguments[arguments.length-1];
+		var args=Array.prototype.slice.call(arguments,2,arguments.length-3);
+		var ret;
+		try {
+			ret=method.apply(obj,args);
+		}
+		catch($err) {
+			return $callback($err);
+		}
+		return $callback(undefined,ret);
+	}
+
+But it'd be a pain to convert each and every Math.min(1,2,3) to $osync(Math,Math.min,1,2,3);
+Possibly add these helper functions automatically for call that start with Math.xxx and other built in types?
+But then what about calling slice on an array ?
+
+Another method might be to prefix or postfix all asynchronous functions with something, e.g. function something would turn into somethingCb. internal functions references could automatically be adjusted, and only for external function would you have to manually define Cb functions ?
+Maybe we could add a character before or after each function call that would indicate to the parser that it is a synchronous function being called? e.g. write Math.min$ or arr.slice$, and the parser will adjust that accordingly?
 ## Loops, try-catch blocks
 ## Call-stack size
