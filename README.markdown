@@ -261,5 +261,84 @@ But then what about calling slice on an array ?
 
 Another method might be to prefix or postfix all asynchronous functions with something, e.g. function something would turn into somethingCb. internal functions references could automatically be adjusted, and only for external function would you have to manually define Cb functions ?
 Maybe we could add a character before or after each function call that would indicate to the parser that it is a synchronous function being called? e.g. write Math.min$ or arr.slice$, and the parser will adjust that accordingly?
-## Loops, try-catch blocks
+## Loops
+## Try-Catch blocks
+Try-catch blocks should be pretty easy. Basically you turn both blocks into new asynchronous functions, then you call the first, if it triggers, call the catch callback directly, if it doesn't call the generated function after the catch block.
+e.g.
+
+	function difficultStuff() {
+		try {
+			var x={};
+			x.y.z=10;
+		}
+		catch(e) {
+			blah();
+		}
+		end();
+	}
+	
+Might turn into: (Warning: might be complicated)
+
+	function difficultStuff($callback) {
+		try {
+			return difficultStuff$0(difficultStuff$2,$callback);
+		}
+		catch($err) {
+			return $callback($err);
+		}
+	}
+	//Try block
+	function difficultStuff$0($catch,$callback) {
+		try {
+			var x={};
+			x.y.z=10;
+			return difficultStuff$3(x,$callback);
+		}
+		catch(e) {
+			return difficultStuff$1(x,e,$callback);
+		}
+	}
+	//Catch block
+	function difficultStuff$1(x,e,$callback) {
+		try {
+			return blah(difficultStuff$2(x,e,$callback));
+		}
+		catch($err) {
+			return $callback($err);
+		}
+	}
+	//Callback for blah call in catch block
+	function difficultStuff$2(x,e,$callback) {
+		return function($err) {
+			try {
+				return difficultStuff$3(x,$callback);
+			}
+			catch($err) {
+				return $callback($err);
+			}
+		}
+	}
+	//Continuation block
+	function difficultStuff$3(x,$callback) {
+		try {
+			return end(difficultStuff$4(x,$callback));
+		}
+		catch($err) {
+			return $callback($err);
+		}
+	}
+	//Final callback
+	function difficultStuff$4(x,$callback) {
+		return function($err) {
+			try {
+				return $callback(undefined);
+			}
+			catch($err) {
+				return $callback($err);
+			}
+		}
+	}
 ## Call-stack size
+Seeing as every function is converted into an asynchronous with callback, call stacks might grow rather big, or even overflow.
+Hopefully V8 features something like tail-call optimization, but if it doesn't, we might be able to get away with using setTimeout(...,0); or process.nextTick instead.
+Yes, that will make it faster. But you should write CPU-intensive code directly anyway, not with a converter like this.
