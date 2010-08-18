@@ -43,12 +43,10 @@ That looks horrible. Let's say you choose to write a new function to get all the
 
 That already looks better, if you put the getKeys function somewhere hidden. But writing the getKeys function is still a pain in the behind.
 
-jsasyncify was a proof of concept to see if it was possible to automatically generate that kind of code, from simple code. For example, turn this:
+jsasyncify was a proof of concept to see if it was possible to automatically generate that kind of code, from simple code. For example, turning this:
 
 	function blah() {
-		var key1=db.get("key1");
-		var key2=db.get("key2");
-		return dosomethingWith(key1,key2);
+		return dosomethingWith(db.get("key1"),db.get("key2"));
 	}
 
 Into something more like:
@@ -86,3 +84,144 @@ Into something more like:
 			}
 		}
 	}
+
+# Current results
+Currently jsasyncify is able to turn:
+
+	function blah() {
+		return dosomethingWith(db.get("key1"),db.get("key2"));
+	}
+
+into the highly verbose
+
+	function blah($callback) {
+		try {
+			return db.get("key1", blah$0($callback));
+		} catch ($err) {
+			return $callback($err);
+		}
+	}
+
+	function blah$0($callback) {
+		return function($err, $temp0) {
+			if ($err) {
+				return $callback($err);
+			} else {
+				try {
+					return db.get("key2", blah$1($callback, $temp0));
+				} catch ($err) {
+					return $callback($err);
+				}
+			}
+		};
+	}
+
+	function blah$1($callback, $temp0) {
+		return function($err, $temp1) {
+			if ($err) {
+				return $callback($err);
+			} else {
+				try {
+					return dosomethingWith($temp0, $temp1, blah$2($callback, $temp0, $temp1));
+				} catch ($err) {
+					return $callback($err);
+				}
+			}
+		};
+	}
+
+	function blah$2($callback, $temp0, $temp1) {
+		return function($err, $temp2) {
+			if ($err) {
+				return $callback($err);
+			} else {
+				try {
+					return $callback(undefined, $temp2);
+				} catch ($err) {
+					return $callback($err);
+				}
+			}
+		};
+	}
+
+Which is pretty cool. However, it has no concept of variables yet, or scope, or loops, or anything of that kind.
+# Pitfalls
+## Scope and nested functions
+Scope is a pretty nasty beast for JS. For example, nested functions are allowed to change scope variables.
+An example of how this might go wrong:
+
+	function doSomething(a,b,c,d) {
+		function incr() {
+			a++;
+		}
+		var x=b(c);
+		incr(10);
+		return d;
+	}
+
+Would, currently, be converted to something like: (error handling left out)
+
+	function doSomething(a,b,c,d,$callback) {
+		function incr(howMuch,$callback) {
+			a+=howMuch;
+			return $callback(undefined);
+		}
+		b(c,doSomething$0(a,b,c,d,$callback,incr));
+	}
+	
+	function doSomething$0(a,b,c,d,$callback,incr) {
+		return function($err,$temp0) {
+			var x=$temp0;
+			incr(10,doSomething$1(a,b,c,d,$callback,incr,$temp0,x));
+		}
+	}
+	
+	function doSomething$1(a,b,c,d,$callback,incr,$temp0,x) {
+		return function($err,$temp1) {
+			return $callback(undefined,d);
+		}
+	}
+
+This would fail, as incr would still be referencing the a in doSomething, not the a being passed along.
+Something I came up with to fix this, would be to put all variables in the scope into an object, like this:
+
+	function doSomething(a,b,c,d,$callback) {
+		var $scope0={ //Number indicates depth, e.g. nested function get $scope1, nested functions in nested functions $scope2
+			a:a,
+			b:b,
+			c:c,
+			d:d,
+			incr:undefined,
+			x:undefined
+		};
+		$scope0.incr=function(howMuch,$callback) {
+			var $scope1={
+				howMuch:howMuch
+			};
+			$scope0.a+=$scope1.howMuch;
+			return $callback(undefined);
+		}
+		b(c,doSomething$0($scope0,$callback));
+	}
+	
+	function doSomething$0($scope0,$callback) {
+		return function($err,$temp0) {
+			$scope0.$temp0=$temp0; //Hold on to these in case multiple return values are needed for further down the line
+			$scope0.x=$scope0.$temp0;
+			$scope0.incr(10,doSomething$1($scope0,$callback));
+		}
+	}
+	
+	function doSomething$1($scope0,$callback) {
+		return function($err,$temp1) {
+			$scope0.$temp1=$temp1;
+			return $callback(undefined,$scope0.d);
+		}
+	}
+
+This way, all variables are scoped along with the callbacks. By giving each level of nested functions their own scope object, we can keep those neatly seperated too.
+The only drawback is that we need to extract all var statements and function statements, keep track of which variables each function has and in which scope they are, etc.
+While difficult, this should be possible. Javascript minifiers are already doing this.
+## Calling built-in functions
+## Loops, try-catch blocks
+## Call-stack size

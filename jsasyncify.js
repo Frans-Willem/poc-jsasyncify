@@ -35,17 +35,16 @@ function getScopeVars(body) {
  * ]
  */
 function statementExtractFunctionCall(statement,nameAllocator) {
-	var type=statement[0];
-	switch (type) {
-		case 'string':
-			return [statement];
-		case 'name':
-			return [statement];
-		case 'num':
-			return [statement];
-		case 'call':{
-			var func=statement[1];
-			var args=statement[2];
+	var handlers={
+		'string':function(value) { return [['string',value]] },
+		'name':function(value) { return [['name',value]] },
+		'num':function(value) { return [['num',value]] },
+		'dot':function(pre,post) {
+			var extracted=handle(pre);
+			extracted[0]=['dot',extracted[0],post];
+			return extracted;
+		},
+		'call':function(func,args) {
 			var newArgs=[];
 			var extracted=undefined;
 			var temp;
@@ -75,8 +74,45 @@ function statementExtractFunctionCall(statement,nameAllocator) {
 				return [statement];
 			}
 		}
-		default: throw new Error("Unknown type :"+type);
+	};
+	function handle(ast) {
+		if (ast[0] in handlers) {
+			return handlers[ast[0]].apply(this,ast.slice(1));
+		} else {
+			throw new Error("Unknown type: "+ast[0]);
+		}
 	}
+	return handle(statement);
+}
+
+function createReturn(statement) {
+	return ["return"].concat(Array.prototype.slice.call(arguments));
+}
+function createBlock(statements) {
+	return ["block",statements];
+}
+function createTryCatch(cmdTry,varCatch,cmdCatch) {
+	return ["try",cmdTry,[varCatch,cmdCatch]];
+}
+
+function createDefun(name,args,body) {
+	return ["defun",name,args,body];
+}
+
+function createFunction(name,args,body) {
+	return ["function",name,args,body];
+}
+
+function createName(name) {
+	return ["name",name];
+}
+
+function createCall(func,args) {
+	return ["call",func,args];
+}
+
+function createIfElse(expression,cmdTrue,cmdFalse) {
+	return ["if",expression,cmdTrue,cmdFalse];
 }
 
 function transformFunction(item,scope) {
@@ -87,17 +123,28 @@ function transformFunction(item,scope) {
 	var body=item[3];
 	var nextTemp=0;
 	var curbody=[];
+	args.push("$callback");
 	
 	function tempvalAllocator() {
 		return "$temp"+(nextTemp++);
 	}
 	
-	ret.push([
-		'defun',
+	ret.push(createDefun(
 		name,
-		args.concat(["$callback"]),
-		curbody
-	]);
+		args,
+		[createTryCatch(
+			createBlock(curbody),
+			"$err",
+			createBlock([
+				createReturn(
+					createCall(
+						createName("$callback"),
+						[createName("$err")]
+					)
+				)
+			])
+		)]
+	));
 	while (body.length>0) {
 		var cur=body.shift();
 		switch (cur[0]) {
@@ -119,35 +166,63 @@ function transformFunction(item,scope) {
 									[
 										'call',
 										['name',name+"$"+funcIndex],
-										args.map(function(a) { return ['name',a]; }).concat([['name','$callback']])
+										args.map(function(a) { return ['name',a]; })
 									]
 								])
 							]
 						]);
 						curbody=[];
-						ret.push([
-							'defun',
+						ret.push(createDefun(
 							name+"$"+(funcIndex++),
-							args.concat(["$callback"]),
+							args,
 							[
-								[
-									'return',
-									['function',null,['$err',extr[1]],curbody]
-								]
+								createReturn(
+									createFunction(
+										null,
+										['$err',extr[1]],
+										[
+											createIfElse(
+												createName("$err"),
+												createBlock([
+													createReturn(
+														createCall(
+															createName("$callback"),
+															[createName("$err")]
+														)
+													)
+												]),
+												createBlock([
+													createTryCatch(
+														createBlock(curbody),
+														"$err",
+														createBlock([
+															createReturn(
+																createCall(
+																	createName("$callback"),
+																	[createName("$err")]
+																)
+															)
+														])
+													)
+												])
+											)
+										]
+									)
+								)
 							]
-						]);
+						));
+						args=args.concat([extr[1]]);
 					} else {
 						//Normal return
-						curbody.push([
-							'return',
-							['call',
-								['name','$callback'],
+						curbody.push(createReturn(
+							createCall(
+								createName('$callback'),
 								[
-									['name','undefined'],
+									createName('undefined'),
 									extr[0]
 								]
-							]
-						]);
+							)
+						));
 					}
 				}
 				break;
@@ -171,6 +246,6 @@ fs.readFile("tests/test0.js",function(err,data) {
 		ast[1]=concat(ast[1].map(transformToplevel));
 		sys.puts(sys.inspect(ast,false,100));
 		var fixed=pro.gen_code(ast,true);
-		sys.puts("Data: "+fixed);
+		sys.puts("Data:\r\n"+fixed);
 	}
 });

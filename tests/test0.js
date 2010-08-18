@@ -1,4 +1,4 @@
 //Simple function returning something
-function something(a,b,c) {
-	return a(b(c("Hello world!")));
+function blah() {
+	return dosomethingWith(db.get("key1"),db.get("key2"));
 }
