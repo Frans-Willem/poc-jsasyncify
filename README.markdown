@@ -1,3 +1,7 @@
+# NOTE
+Currently, I'm not working on jsasyncify. It was just a proof-of-concept, and for now, I believe it'd be too much work to fully implement.
+Nevertheless, I think it could certainly be possible to have a converter that would take (a subset of) Javascript and turn it into asynchronous Javascript.
+If you would like to pursue something like this, feel free to use any of the code in here, or use any of my ideas. All I ask is that if some of these ideas inspired you, you put a little note in your readme somewhere about it :)
 # What is jsasyncify?
 JSAsyncify is a proof of concept project that takes a piece of normal Javascript, and converts it to asynchronous javascript for use in Node.js.
 # What to use it for ?
